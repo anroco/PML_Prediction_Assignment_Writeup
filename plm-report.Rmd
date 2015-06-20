@@ -1,0 +1,149 @@
+---
+title: "Prediction model practice exercises"
+author: "anroco"
+date: "20/06/2015"
+output: html_document
+---
+
+##Introduction
+
+The use of devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. The goal of this project is use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+More information is available this [website](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).
+
+##Data Preparation
+
+Libraries needed to be used in the project.
+
+```{r results='hide'}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(rattle)
+library(rpart)
+```
+
+###Download and load data sets
+
+In this step the data are downloaded and then they are load it into R.
+
+```{r}
+train_url_file <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url_file <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train_name_file <- "pml-training.csv"
+test_name_file <- "pml-testing.csv"
+
+#download files (if necessary)
+if (!file.exists(train_name_file)) {
+  download.file(train_url_file, train_name_file, method="curl")
+}
+if (!file.exists(test_name_file)) {
+  download.file(test_url_file, test_name_file, method="curl")
+}
+
+#load files in R
+train_raw_data <- read.csv(train_name_file)
+test_raw_data <- read.csv(test_name_file)
+dim(train_raw_data)
+dim(test_raw_data)
+```
+
+As we see the training dataset has 19622 rows and 160 columns, on the other hand, the test dataset are 20 rows and 160 columns.
+
+###Cleaning data
+
+In this step is done cleaning data by removing the columns that consist of NA values.
+
+```{r}
+#remove the columns that only contain NA values.
+train_data <- train_raw_data[, colSums(is.na(train_raw_data)) == 0]
+test_data <- test_raw_data[, colSums(is.na(test_raw_data)) == 0]
+
+#remove the raw data sets
+rm(train_raw_data)
+rm(test_raw_data)
+
+#validate the complete cases
+sum(complete.cases(train_data))
+sum(complete.cases(test_data))
+```
+
+As we see the training dataset has 19622 complete records, like the test dataset have 20 complete records.
+
+The variables that do not have relevant information on obtaining the model they are removed.
+
+```{r}
+#copy the classe variable
+classe_var <- train_data$classe
+
+#remove the columns that are not necessary
+train_data <- train_data[, !grepl("^X|timestamp|window", names(train_data))]
+test_data <- test_data[, !grepl("^X|timestamp|window", names(test_data))]
+
+#remove the columns that are not numeric.
+train_data <- train_data[, sapply(train_data, is.numeric)]
+test_data <- test_data[, sapply(test_data, is.numeric)]
+train_data$classe <- classe_var
+
+str(train_data)
+dim(train_data)
+str(test_data)
+dim(test_data)
+```
+
+Now, the cleaned training data set contains 19622 observations and 53 variables, while the testing data set contains 20 observations and 53 variables. The "classe" variable is still in the cleaned training set.
+
+##Data Modeling
+
+###Cross validation set
+
+The training set is divided in two parts, the first is a training set with 70% of the data which is used to train the model and the other 30% testing is a validation set used to assess model performance.
+
+```{r}
+inTrain = createDataPartition(train_data$classe, p = 0.7, list=FALSE)
+training = train_data[inTrain,]
+testing = train_data[-inTrain,]
+```
+
+###Training
+
+For this project used the algorithm random forest to define the predictive model because it is one of the learning algorithms more accurate than is available, it can also handle hundreds of input variables, as well as automatically select the most important without excluding any, between other advantages, on the other hand, we will use 5-fold cross validation when applying the algorithm. 
+
+```{r}
+set.seed(1234)
+modelFit <- train(classe ~ ., data = training, method="rf", trControl=trainControl(method='cv', 5), ntree=250, allowParallel=TRUE)
+modelFit
+```
+
+###Prediction
+
+In this step we estimate the performance of the model on the validation data set, allows forecasting the accuracy and overall out-of-sample error, which indicate how well the model will perform with other data.
+
+```{r}
+predictions <- predict(modelFit, testing)
+cm <- confusionMatrix(testing$classe, predictions)
+cm
+
+#get accuracy of the model
+postResample(predictions, testing$classe)
+
+#get estimated out-of-sample error of the model
+1 - as.numeric(cm$overall[1])
+```
+
+So, the estimated accuracy of the model is 99.42% and the estimated out-of-sample error is 0.58%. In the following chart we can see the decision tree model output.
+
+```{r}
+#decision tree visualization
+treeModel <- rpart(classe ~ ., data=training, method="class")
+fancyRpartPlot(treeModel)
+```
+
+##Result of predicting for test dataset
+
+Now, the model is applied to the test data to produce the results.
+
+```{r}
+predict(modelFit, test_data[, -length(names(test_data))])
+```
